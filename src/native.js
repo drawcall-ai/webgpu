@@ -23,7 +23,6 @@ export function loadNative() {
   const dir = directory();
   const settings = {
     LP_NUM_THREADS: '2',
-    GALLIVM_PERF: 'nopt',
     // Cold processes cannot benefit from cross-render shader reuse. Disabling the
     // disk cache also avoids the cached vertex-object corruption seen in Mesa 26.
     MESA_SHADER_CACHE_DISABLE: 'true',

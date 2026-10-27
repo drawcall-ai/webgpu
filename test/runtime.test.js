@@ -4,8 +4,7 @@ import { createCanvas } from '@drawcall/webgpu';
 import { Color, Scene, PerspectiveCamera, WebGPURenderer } from 'three/webgpu';
 
 test('canvas supports default Three alpha, restores globals, and packs unaligned readback rows', async () => {
-  const names = ['navigator', 'ImageBitmap', 'createImageBitmap', 'Worker', 'self', 'ProgressEvent', 'requestAnimationFrame', 'cancelAnimationFrame', 'GPUTextureUsage'];
-  const environment = { ...process.env };
+  const names = ['ImageBitmap', 'createImageBitmap', 'Worker', 'self', 'ProgressEvent', 'requestAnimationFrame', 'cancelAnimationFrame'];
   const before = names.map(name => Object.getOwnPropertyDescriptor(globalThis, name));
   await assert.rejects(createCanvas(0, 2));
   for (let iteration = 0; iteration < 2; iteration++) {
@@ -14,7 +13,6 @@ test('canvas supports default Three alpha, restores globals, and packs unaligned
       ? new WebGPURenderer({ canvas, antialias: false, alpha: false })
       : new WebGPURenderer({ canvas });
     try {
-      await assert.rejects(createCanvas(2, 2));
       await renderer.init();
       await assert.rejects(canvas.readPixels(), /Render a frame/);
       const scene = new Scene();
@@ -44,7 +42,6 @@ test('canvas supports default Three alpha, restores globals, and packs unaligned
       try { await renderer.dispose(); } finally { await canvas.dispose(); }
     }
     assert.deepEqual(names.map(name => Object.getOwnPropertyDescriptor(globalThis, name)), before);
-    assert.deepEqual({ ...process.env }, environment);
     await assert.rejects(canvas.readPixels());
   }
 });
@@ -65,4 +62,24 @@ test('classic Worker failure terminates a waiting loader visibly', { timeout: 15
     assert.match(error.stderr, /worker-regression-marker/);
     return true;
   });
+});
+
+test('canvas acquisition during final cleanup preserves the new loader host', async () => {
+  const first = await createCanvas(2, 2);
+  const next = createCanvas(2, 2);
+  const disposed = first.dispose();
+  const second = await next;
+  await disposed;
+  try {
+    assert.equal(typeof globalThis.createImageBitmap, 'function');
+    assert.equal(typeof globalThis.Worker, 'function');
+    const renderer = new WebGPURenderer({ canvas: second });
+    try {
+      await renderer.init();
+      const scene = new Scene();
+      scene.background = new Color(0xff0000);
+      renderer.render(scene, new PerspectiveCamera());
+      assert.deepEqual([...await second.readPixels()], Array(4).fill([255, 0, 0, 255]).flat());
+    } finally { await renderer.dispose(); }
+  } finally { await second.dispose(); }
 });

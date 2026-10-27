@@ -59,6 +59,9 @@ try {
   report.tests = await run(['--test', '--test-concurrency=1', ...tests.map(name => `test/${name}`)]);
   process.stdout.write(report.tests.stdout);
   process.stderr.write(report.tests.stderr);
+  report.example = await run(['--test', 'examples/compute-texture/test/node.test.js']);
+  process.stdout.write(report.example.stdout);
+  process.stderr.write(report.example.stderr);
   for (let repetition = 0; repetition < repetitions; repetition++) {
     for (const scene of SCENES) {
       const png = join(output, `${scene}-${repetition}.png`);

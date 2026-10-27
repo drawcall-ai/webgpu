@@ -19,6 +19,7 @@ image = (modal.Image.from_registry('node:24-trixie-slim', add_python='3.12')
     .env({'XDG_RUNTIME_DIR': '/runtime'})
     .add_local_dir(ROOT / 'src', '/work/src')
     .add_local_dir(ROOT / 'skills', '/work/skills')
+    .add_local_dir(ROOT / 'examples/compute-texture', '/work/examples/compute-texture', ignore=['node_modules', 'dist', 'test/out'])
     .add_local_file(ROOT / 'README.md', '/work/README.md')
     .add_local_file(ROOT / 'LICENSE', '/work/LICENSE')
     .add_local_dir(ROOT / 'test', '/work/test', ignore=['out', '__pycache__']))
@@ -41,6 +42,7 @@ def validate(native_dir: str, repetitions: int):
     Path('/consumer/package.json').write_text(json.dumps({'private': True, 'type': 'module'}))
     run(['npm', 'install', '--ignore-scripts', '--save-exact', *packed, 'three@0.186.1'])
     shutil.copytree('/work/test', '/consumer/test')
+    shutil.copytree('/work/examples', '/consumer/examples')
     def fingerprint():
         return {str(path): hashlib.sha256(path.read_bytes()).hexdigest()
                 for base in ['/consumer/node_modules/three', '/consumer/test/models']
@@ -50,9 +52,12 @@ def validate(native_dir: str, repetitions: int):
         assert hashlib.sha256(Path('/consumer/test/models', name).read_bytes()).hexdigest() == digest, f'Original asset changed: {name}'
     for scene in ['pbr', 'soldier', 'tokyo']:
         assert hashlib.sha256(Path('/consumer/test/reference', scene + '.png').read_bytes()).hexdigest() == provenance[scene]['sha256'], f'Reference changed: {scene}'
+    adapter = json.loads(run(['node', 'test/adapter.js']).stdout)
     before = fingerprint()
-    unit = run(['node', '--test', '--test-concurrency=1', 'test/runtime.test.js', 'test/images.test.js'])
+    unit = run(['node', '--test', '--test-concurrency=1', 'test/runtime.test.js', 'test/images.test.js', 'test/compute.test.js', 'test/platform.test.js'])
+    example = run(['node', '--test', 'examples/compute-texture/test/node.test.js'])
     rows = []
+    example_rows = []
     for repetition in range(repetitions):
         for scene in ['pbr', 'soldier', 'tokyo']:
             start = time.monotonic()
@@ -66,10 +71,15 @@ def validate(native_dir: str, repetitions: int):
                    'quality': json.loads(verified.stdout), 'stderr': rendered.stderr}
             rows.append(row)
             print(json.dumps(row), flush=True)
+        start = time.monotonic()
+        run(['/usr/bin/time', '-f', '%e %M', '-o', '/tmp/usage', 'node', 'examples/compute-texture/node.js', '/tmp/compute.png'])
+        elapsed = time.monotonic() - start
+        seconds, rss = Path('/tmp/usage').read_text().split()
+        example_rows.append({'repetition': repetition, 'wallSeconds': elapsed, 'timeSeconds': float(seconds), 'peakRssMiB': int(rss) / 1024})
     assert before == fingerprint(), 'Three.js or original model bytes changed'
     for scene in ['pbr', 'soldier', 'tokyo']:
         assert len({row['hash'] for row in rows if row['scene'] == scene}) == 1, f'{scene} output changed between fresh processes'
-    return {'rows': rows, 'runtimeTests': unit.stdout, 'nativeDir': native_dir,
+    return {'adapter': adapter, 'rows': rows, 'exampleRows': example_rows, 'exampleTests': example.stdout, 'runtimeTests': unit.stdout, 'nativeDir': native_dir,
             'configuredResources': {'cpu': 2, 'memoryMiB': 1024},
             'cgroupLimits': {name: Path('/sys/fs/cgroup', name).read_text().strip()
                 for name in ['cpu.max', 'memory.max', 'cpu/cpu.cfs_quota_us',

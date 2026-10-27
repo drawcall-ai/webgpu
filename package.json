@@ -1,10 +1,15 @@
 {
   "name": "@drawcall/webgpu",
   "version": "0.1.0",
-  "description": "Cold Three.js rendering with native CPU WebGPU",
+  "description": "WebGPU rendering and compute in browsers and GPU-less Node.js",
   "license": "MIT",
   "type": "module",
-  "exports": "./src/index.js",
+  "exports": {
+    ".": {
+      "node": "./src/index.js",
+      "default": "./src/browser.js"
+    }
+  },
   "files": [
     "src",
     "skills"
@@ -14,7 +19,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/drawcall-ai/webgl.git"
+    "url": "git+https://github.com/drawcall-ai/webgpu.git"
   },
   "scripts": {
     "build:native": "modal run native/cloud.py",

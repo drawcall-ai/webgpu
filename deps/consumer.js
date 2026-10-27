@@ -43,6 +43,10 @@ try {
     recursive: true,
     filter: source => !['out', '__pycache__'].includes(basename(source)),
   });
+  await cp(join(root, 'examples/compute-texture'), join(consumer, 'examples/compute-texture'), {
+    recursive: true,
+    filter: source => !['node_modules', 'dist', 'out'].includes(basename(source)),
+  });
   try {
     run(['test/ci.js', String(repetitions)], consumer);
   } finally {

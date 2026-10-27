@@ -159,7 +159,7 @@ test('trust configures precisely these nine packages and dry-run invokes no exte
       cwd: root, encoding: 'utf8', env: { ...process.env, npm_execpath: join(root, 'npm.js') },
     });
     const expected = [...Object.keys(manifest.optionalDependencies), manifest.name].map(name => [
-      'trust', 'github', name, '--repo', 'drawcall-ai/webgl', '--file', 'publish-package.yml', '--allow-publish', '--yes',
+      'trust', 'github', name, '--repo', 'drawcall-ai/webgpu', '--file', 'publish-package.yml', '--allow-publish', '--yes',
     ]);
     const dry = run('--dry-run');
     assert.equal(dry.status, 0, dry.stderr);

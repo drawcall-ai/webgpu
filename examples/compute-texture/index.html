@@ -1,0 +1,35 @@
+<!--
+Source: https://github.com/mrdoob/three.js/blob/9b4a2ac29c63ccb43fd51c5661f2f873ac2c39b8/examples/webgpu_compute_texture.html
+MIT license: see LICENSE. example.css is copied unchanged from the same revision.
+Scene and compute logic are shared in scene.js; browser.js owns DOM and events.
+The upstream import map is omitted because Vite resolves npm imports.
+-->
+<html lang="en">
+	<head>
+		<title>three.js webgpu - compute texture</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+		<meta property="og:title" content="three.js webgpu - compute texture">
+		<meta property="og:type" content="website">
+		<meta property="og:url" content="https://threejs.org/examples/webgpu_compute_texture.html">
+		<meta property="og:image" content="https://threejs.org/examples/screenshots/webgpu_compute_texture.jpg">
+		<link type="text/css" rel="stylesheet" href="example.css">
+	</head>
+	<body>
+
+		<div id="info">
+			<a href="https://threejs.org/" target="_blank" rel="noopener" class="logo-link"></a>
+
+			<div class="title-wrapper">
+				<a href="https://threejs.org/" target="_blank" rel="noopener">three.js</a>
+				<span>Compute Texture</span>
+			</div>
+
+			<small>
+				Compute texture using GPU.
+			</small>
+		</div>
+
+		<script type="module" src="./browser.js"></script>
+	</body>
+</html>

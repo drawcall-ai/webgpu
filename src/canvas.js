@@ -125,8 +125,6 @@ export function canvas(width, height, check) {
       configuration = undefined;
       if (device) {
         device.removeEventListener('uncapturederror', onError);
-        // Three may already have destroyed its device. destroy() is idempotent.
-        device.destroy();
       }
       if (lost && lost.reason !== 'destroyed') errors.push(new Error(`Device lost: ${lost.reason}: ${lost.message}`));
       if (errors.length) throw new AggregateError(errors, 'WebGPU rendering failed');
