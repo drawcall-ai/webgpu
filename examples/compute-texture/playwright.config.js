@@ -8,9 +8,10 @@ export default defineConfig({
     baseURL: 'http://127.0.0.1:4173',
     viewport: { width: 800, height: 600 },
     launchOptions: {
+      // Software WebGPU canvas presentation needs Vulkan shared-image support.
       args: ['--enable-unsafe-webgpu', ...(process.platform === 'darwin'
         ? ['--use-angle=metal']
-        : ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'])],
+        : ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--use-vulkan=swiftshader', '--enable-features=Vulkan'])],
     },
   },
   webServer: {

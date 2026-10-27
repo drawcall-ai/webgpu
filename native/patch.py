@@ -1,14 +1,15 @@
 from pathlib import Path
 
 
-def patch(root):
+def patch(root, musl=False):
     """Enable the native image and driver boundaries without changing GPU validation."""
     here = Path(__file__).parent
     base = root / "src/dawn"
     names = ["node/interop/Browser.idl", "node/Module.cpp", "node/binding/GPUQueue.h",
              "node/binding/GPUQueue.cpp", "node/binding/GPUDevice.cpp", "native/vulkan/BackendVk.cpp",
              "common/DynamicLib.cpp", "common/SystemUtils.cpp", "native/vulkan/BackendVk.h",
-             "native/vulkan/VulkanInfo.h", "native/vulkan/VulkanInfo.cpp"]
+             "native/vulkan/VulkanInfo.h", "native/vulkan/VulkanInfo.cpp",
+             "platform/WorkerThread.h", "platform/WorkerThread.cpp"]
     paths = {name: base / name for name in names}
     paths["tools/fetch_dawn_dependencies.py"] = root / "tools/fetch_dawn_dependencies.py"
     sources = {}
@@ -23,6 +24,29 @@ def patch(root):
         if source.count(old) != 1:
             raise RuntimeError(f"Dawn patch anchor must occur exactly once in {name}: {old}")
         sources[name] = source.replace(old, new)
+
+    if musl:
+        # musl defaults to 128 KiB per pthread, which overflows during asynchronous
+        # shader compilation. Size only Dawn's compiler workers, not all process threads.
+        change("platform/WorkerThread.h", "#include <thread>", "#include <pthread.h>")
+        change("platform/WorkerThread.h", "    std::thread mThread;",
+               "    PostWorkerJobCallback mCallback;\n    void* mUserdata;\n    pthread_t mThread;")
+        change("platform/WorkerThread.cpp",
+               "    : mThread(&AsyncJobHandleImpl::JobThreadLoop, this, cb, userdata) {}",
+               """    : mCallback(cb), mUserdata(userdata) {
+    pthread_attr_t attributes;
+    DAWN_CHECK(pthread_attr_init(&attributes) == 0);
+    DAWN_CHECK(pthread_attr_setstacksize(&attributes, 8 * 1024 * 1024) == 0);
+    const int result = pthread_create(&mThread, &attributes, [](void* data) -> void* {
+        auto* job = static_cast<AsyncJobHandleImpl*>(data);
+        job->JobThreadLoop(job->mCallback, job->mUserdata);
+        return nullptr;
+    }, this);
+    DAWN_CHECK(pthread_attr_destroy(&attributes) == 0);
+    DAWN_CHECK(result == 0);
+}""")
+        change("platform/WorkerThread.cpp", "        mThread.join();",
+               "        DAWN_CHECK(pthread_join(mThread, nullptr) == 0);")
 
     # The pinned fetcher hides Git failures and retries a remote that shallow clones never create.
     change("tools/fetch_dawn_dependencies.py",

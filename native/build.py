@@ -108,7 +108,7 @@ def build(work, output, jobs=4):
     idl = source / "third_party/gpuweb/webgpu.idl"
     idl.parent.mkdir(exist_ok=True)
     run("curl", "-fL", "--retry", "3", f"https://raw.githubusercontent.com/gpuweb/gpuweb/{GPUWEB}/webgpu.idl", "-o", idl)
-    patch(source)
+    patch(source, musl=host.startswith("linuxmusl-"))
     options = ["-DDAWN_ENABLE_SWIFTSHADER=OFF"]
     if host.startswith(("linux-", "linuxmusl-")):
         options.append("-DCMAKE_SHARED_LINKER_FLAGS=-static-libstdc++ -static-libgcc -Wl,--exclude-libs,ALL")

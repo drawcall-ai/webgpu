@@ -1,6 +1,6 @@
 {
   "name": "@drawcall/webgpu",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "WebGPU rendering and compute in browsers and GPU-less Node.js",
   "license": "MIT",
   "type": "module",
@@ -37,14 +37,14 @@
     "sharp": "0.35.5"
   },
   "optionalDependencies": {
-    "@drawcall/webgpu-linux-x64": "0.1.0",
-    "@drawcall/webgpu-linux-arm64": "0.1.0",
-    "@drawcall/webgpu-darwin-x64": "0.1.0",
-    "@drawcall/webgpu-darwin-arm64": "0.1.0",
-    "@drawcall/webgpu-win32-x64": "0.1.0",
-    "@drawcall/webgpu-linuxmusl-x64": "0.1.0",
-    "@drawcall/webgpu-linuxmusl-arm64": "0.1.0",
-    "@drawcall/webgpu-win32-arm64": "0.1.0"
+    "@drawcall/webgpu-linux-x64": "0.1.1",
+    "@drawcall/webgpu-linux-arm64": "0.1.1",
+    "@drawcall/webgpu-darwin-x64": "0.1.1",
+    "@drawcall/webgpu-darwin-arm64": "0.1.1",
+    "@drawcall/webgpu-win32-x64": "0.1.1",
+    "@drawcall/webgpu-linuxmusl-x64": "0.1.1",
+    "@drawcall/webgpu-linuxmusl-arm64": "0.1.1",
+    "@drawcall/webgpu-win32-arm64": "0.1.1"
   },
   "devDependencies": {
     "three": "0.186.1"
