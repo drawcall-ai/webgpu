@@ -165,6 +165,34 @@ def notices(sources, output):
                 stream.write(path.read_text(encoding="utf-8", errors="replace"))
 
 
+def toolchain(sources, work, prefix, host, target, jobs, options, suffix):
+    """Build LLVM, glslang, and libdrm into prefix once per version of this file."""
+    stamp = prefix / ".drawcall-recipe"
+    recipe = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+    if stamp.exists() and stamp.read_text() == recipe:
+        return
+    if prefix.exists():
+        shutil.rmtree(prefix)
+    cmake(sources["llvm"] / "llvm", work / "llvm-build", prefix, jobs, [
+        f"-DLLVM_TARGETS_TO_BUILD={target}", "-DLLVM_BUILD_TOOLS=OFF", "-DLLVM_INCLUDE_TESTS=OFF",
+        "-DLLVM_INCLUDE_EXAMPLES=OFF", "-DLLVM_INCLUDE_BENCHMARKS=OFF", "-DLLVM_INCLUDE_DOCS=OFF",
+        "-DLLVM_ENABLE_ZLIB=OFF", "-DLLVM_ENABLE_ZSTD=OFF", "-DLLVM_ENABLE_LIBXML2=OFF",
+        "-DLLVM_ENABLE_TERMINFO=OFF", "-DLLVM_ENABLE_LIBEDIT=OFF", "-DLLVM_ENABLE_RTTI=ON", *options,
+    ], ["install-llvm-libraries", "install-llvm-headers", "install-cmake-exports", "llvm-config"])
+    (prefix / "bin").mkdir(exist_ok=True)
+    shutil.copy2(work / f"llvm-build/bin/llvm-config{suffix}", prefix / f"bin/llvm-config{suffix}")
+    cmake(sources["glslang"], work / "glslang-build", prefix, jobs, [
+        "-DENABLE_OPT=OFF", "-DGLSLANG_TESTS=OFF", "-DENABLE_HLSL=OFF", "-DBUILD_SHARED_LIBS=OFF", *options,
+    ], ["install"])
+    if host == "Linux":
+        meson(sources["libdrm"], work / "libdrm-build", prefix, jobs, [
+            "-Ddefault_library=static", "-Dtests=false", "-Dman-pages=disabled", "-Dudev=false",
+            *[f"-D{driver}=disabled" for driver in
+              ("intel", "radeon", "amdgpu", "nouveau", "vmwgfx", "freedreno", "vc4", "etnaviv")],
+        ])
+    stamp.write_text(recipe)
+
+
 def build(work, output, jobs):
     host = platform.system()
     target = {"x86_64": "X86", "amd64": "X86", "aarch64": "AArch64", "arm64": "AArch64"}.get(platform.machine().lower())
@@ -190,23 +218,7 @@ def build(work, output, jobs):
     sources = {name: fetch(name, work) for name in SOURCES
                if (name != "libdrm" or host == "Linux") and (name != "directx" or host == "Windows")}
     patch(sources, host)
-    cmake(sources["llvm"] / "llvm", work / "llvm-build", prefix, jobs, [
-        f"-DLLVM_TARGETS_TO_BUILD={target}", "-DLLVM_BUILD_TOOLS=OFF", "-DLLVM_INCLUDE_TESTS=OFF",
-        "-DLLVM_INCLUDE_EXAMPLES=OFF", "-DLLVM_INCLUDE_BENCHMARKS=OFF", "-DLLVM_INCLUDE_DOCS=OFF",
-        "-DLLVM_ENABLE_ZLIB=OFF", "-DLLVM_ENABLE_ZSTD=OFF", "-DLLVM_ENABLE_LIBXML2=OFF",
-        "-DLLVM_ENABLE_TERMINFO=OFF", "-DLLVM_ENABLE_LIBEDIT=OFF", "-DLLVM_ENABLE_RTTI=ON", *options,
-    ], ["install-llvm-libraries", "install-llvm-headers", "install-cmake-exports", "llvm-config"])
-    (prefix / "bin").mkdir(exist_ok=True)
-    shutil.copy2(work / f"llvm-build/bin/llvm-config{suffix}", prefix / f"bin/llvm-config{suffix}")
-    cmake(sources["glslang"], work / "glslang-build", prefix, jobs, [
-        "-DENABLE_OPT=OFF", "-DGLSLANG_TESTS=OFF", "-DENABLE_HLSL=OFF", "-DBUILD_SHARED_LIBS=OFF", *options,
-    ], ["install"])
-    if host == "Linux":
-        meson(sources["libdrm"], work / "libdrm-build", prefix, jobs, [
-            "-Ddefault_library=static", "-Dtests=false", "-Dman-pages=disabled", "-Dudev=false",
-            *[f"-D{driver}=disabled" for driver in
-              ("intel", "radeon", "amdgpu", "nouveau", "vmwgfx", "freedreno", "vc4", "etnaviv")],
-        ])
+    toolchain(sources, work, prefix, host, target, jobs, options, suffix)
     os.environ["PKG_CONFIG_PATH"] = str(prefix / "lib/pkgconfig")
     tools = work / "tools.ini"
     binaries = {"llvm-config": prefix / f"bin/llvm-config{suffix}", "glslangValidator": prefix / f"bin/glslang{suffix}"}
