@@ -114,7 +114,8 @@ def build(work, output, jobs=4):
         options.append("-DCMAKE_SHARED_LINKER_FLAGS=-static-libstdc++ -static-libgcc -Wl,--exclude-libs,ALL")
     if host.startswith("darwin-"):
         # macOS GPUs need Metal; other platforms reach GPUs through installed Vulkan drivers.
-        options.extend(["-DCMAKE_OSX_DEPLOYMENT_TARGET=13.5", "-DDAWN_ENABLE_METAL=ON"])
+        # Tint's MSL writer defaults from Metal only on first configure, so restored caches need it set.
+        options.extend(["-DCMAKE_OSX_DEPLOYMENT_TARGET=13.5", "-DDAWN_ENABLE_METAL=ON", "-DTINT_BUILD_MSL_WRITER=ON"])
     if host.startswith("win32-"):
         options.extend(["-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded", "-DABSL_MSVC_STATIC_RUNTIME=ON"])
     run("cmake", "-S", source, "-B", work / "build", "-G", "Ninja",
