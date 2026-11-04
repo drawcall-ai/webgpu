@@ -12,6 +12,11 @@ on:
 permissions:
   contents: read
 
+# Superseded branch runs are cancelled; every main commit keeps its run, which publishing reuses.
+concurrency:
+  group: ci-${{ github.ref == 'refs/heads/main' && github.sha || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   browser:
     runs-on: ubuntu-24.04
@@ -83,42 +88,56 @@ jobs:
     runs-on: ${{ matrix.runner }}
     container: ${{ matrix.container }}
     timeout-minutes: 240
+    env:
+      # Bump when a toolchain change in this workflow must rebuild the native packages.
+      NATIVE_TOOLCHAIN: 1
     defaults:
       run:
         shell: bash
     steps:
       - uses: actions/checkout@v4
-      - name: Linux build tools
+      # The native files below fully determine a target's binaries. When they are unchanged, reuse
+      # the last tested output and skip the toolchain and build steps; packaging and tests still run.
+      - uses: actions/cache/restore@v4
+        id: output
+        with:
+          path: dist/${{ matrix.target }}
+          key: native-${{ matrix.target }}-${{ env.NATIVE_TOOLCHAIN }}-${{ hashFiles('native/*.py', 'native/*.cpp', 'native/*.h', 'deps/mesa.py', 'deps/bundle.py', 'deps/alpine.sh') }}
+      - name: Linux paths
         if: runner.os == 'Linux' && !startsWith(matrix.target, 'linuxmusl-')
         run: |
-          dnf install -y bison flex clang patchelf pkgconf-pkg-config
           echo /opt/python/cp312-cp312/bin >> "$GITHUB_PATH"
           echo /opt/rh/gcc-toolset-14/root/usr/bin >> "$GITHUB_PATH"
+      - name: Linux build tools
+        if: runner.os == 'Linux' && !startsWith(matrix.target, 'linuxmusl-') && steps.output.outputs.cache-hit != 'true'
+        run: |
+          dnf install -y bison flex clang patchelf pkgconf-pkg-config
           /opt/python/cp312-cp312/bin/pip install ninja==1.13.0 cmake==3.31.6 meson==1.7.0 mako pyyaml packaging
       - uses: actions/setup-python@v5
         if: runner.os != 'Linux'
         with:
           python-version: '3.12'
       - name: Desktop build tools
-        if: runner.os != 'Linux'
+        if: runner.os != 'Linux' && steps.output.outputs.cache-hit != 'true'
         run: python -m pip install ninja==1.13.0 meson==1.7.0 mako pyyaml packaging
       - name: macOS parser tools
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && steps.output.outputs.cache-hit != 'true'
         run: |
           brew install bison
           echo "$(brew --prefix bison)/bin" >> "$GITHUB_PATH"
       - name: Windows parser tools
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && steps.output.outputs.cache-hit != 'true'
         run: choco install -y winflexbison3 --no-progress
       - uses: actions/setup-node@v4
         if: ${{ !startsWith(matrix.target, 'linuxmusl-') }}
         with:
           node-version: 24
       - uses: actions/setup-go@v5
-        if: ${{ !startsWith(matrix.target, 'linuxmusl-') }}
+        if: ${{ !startsWith(matrix.target, 'linuxmusl-') && steps.output.outputs.cache-hit != 'true' }}
         with:
           go-version: '1.24.2'
           cache: false
+      # Also provides dumpbin for the runtime dependency audit.
       - uses: ilammy/msvc-dev-cmd@v1
         if: runner.os == 'Windows'
         with:
@@ -128,6 +147,7 @@ jobs:
         run: git config --global core.longpaths true
       - uses: actions/cache/restore@v4
         id: cache
+        if: steps.output.outputs.cache-hit != 'true'
         with:
           path: build
           key: dawn-${{ matrix.target }}-${{ runner.os == 'Linux' && 'manylinux-' || '' }}${{ hashFiles('native/*.py', 'native/*.cpp', 'native/*.h', 'deps/*.py', 'deps/*.sh', '.github/workflows/ci.yml') }}
@@ -135,16 +155,16 @@ jobs:
       - name: Build and test Alpine package
         id: alpine
         if: startsWith(matrix.target, 'linuxmusl-')
-        run: docker run --rm -v "$PWD:/work" -w /work node:22-alpine3.22 sh deps/alpine.sh ${{ matrix.target }}
+        run: docker run --rm -v "$PWD:/work" -w /work node:22-alpine3.22 sh deps/alpine.sh ${{ matrix.target }} ${{ steps.output.outputs.cache-hit != 'true' && 'build' || '' }}
       - name: Build native package
-        if: ${{ !startsWith(matrix.target, 'linuxmusl-') }}
+        if: ${{ !startsWith(matrix.target, 'linuxmusl-') && steps.output.outputs.cache-hit != 'true' }}
         run: python native/build.py build dist/${{ matrix.target }}
       - name: Build Mesa
         id: mesa
-        if: ${{ !startsWith(matrix.target, 'linuxmusl-') }}
+        if: ${{ !startsWith(matrix.target, 'linuxmusl-') && steps.output.outputs.cache-hit != 'true' }}
         run: python deps/mesa.py dist/${{ matrix.target }} --work build/mesa --jobs 4
       - name: Bundle Linux runtime
-        if: runner.os == 'Linux' && !startsWith(matrix.target, 'linuxmusl-')
+        if: runner.os == 'Linux' && !startsWith(matrix.target, 'linuxmusl-') && steps.output.outputs.cache-hit != 'true'
         run: python deps/bundle.py dist/${{ matrix.target }}
       - name: Package
         if: ${{ !startsWith(matrix.target, 'linuxmusl-') }}
@@ -164,10 +184,15 @@ jobs:
         if: always() && startsWith(matrix.target, 'linuxmusl-')
         run: sudo chown -R "$(id -u):$(id -g)" .
       - uses: actions/cache/save@v4
-        if: ${{ !cancelled() && steps.cache.outputs.cache-hit != 'true' && (steps.mesa.outcome == 'success' || steps.alpine.outcome == 'success') }}
+        if: ${{ !cancelled() && steps.output.outputs.cache-hit != 'true' && steps.cache.outputs.cache-hit != 'true' && (steps.mesa.outcome == 'success' || steps.alpine.outcome == 'success') }}
         with:
           path: build
           key: ${{ steps.cache.outputs.cache-primary-key }}
+      - uses: actions/cache/save@v4
+        if: success() && steps.output.outputs.cache-hit != 'true'
+        with:
+          path: dist/${{ matrix.target }}
+          key: ${{ steps.output.outputs.cache-primary-key }}
       - uses: actions/upload-artifact@v4
         if: always()
         with:
