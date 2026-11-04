@@ -2,6 +2,49 @@
 import { globals } from './globals.js';
 
 let sharpPromise;
+
+/**
+ * Let copyExternalImageToTexture take ImageData and 2D canvases, which Node has only through canvas libraries: their
+ * pixels upload through a temporary native ImageBitmap, so copies behave as the ImageBitmap copies browsers match.
+ */
+export function installCopySources(native) {
+  const { prototype } = native.globals.GPUQueue;
+  const copy = prototype.copyExternalImageToTexture;
+  prototype.copyExternalImageToTexture = function (source, destination, size) {
+    const pixels = imageData(source?.source);
+    // Anything else reaches the native method, which reports what it does not support.
+    if (!pixels) return copy.call(this, source, destination, size);
+    const bytes = new Uint8Array(pixels.data.buffer, pixels.data.byteOffset, pixels.data.byteLength);
+    const bitmap = native.createImageBitmapFromRGBA(pixels.width, pixels.height, bytes);
+    try {
+      return copy.call(this, { ...source, source: bitmap }, destination, size);
+    } finally {
+      bitmap.close();
+    }
+  };
+}
+
+/** The straight-alpha sRGB pixels of ImageData, or of a canvas with a 2D context. */
+function imageData(image) {
+  if (typeof image !== 'object' || image === null) return;
+  const pixels = typeof image.getContext === 'function'
+    ? image.getContext('2d')?.getImageData(0, 0, image.width, image.height)
+    : image;
+  if (!(pixels?.data instanceof Uint8ClampedArray)) return;
+  if ((pixels.colorSpace ?? 'srgb') !== 'srgb') throw new TypeError(`Only sRGB image data uploads, not ${pixels.colorSpace}`);
+  return pixels;
+}
+
+/** The straight-alpha RGBA pixels of an ImageBitmap from createImageBitmap, as ImageData's fields. */
+export function readImageBitmap(native, bitmap) {
+  const { data, premultipliedAlpha } = native.readImageBitmapRGBA(bitmap);
+  if (premultipliedAlpha) for (let i = 0; i < data.length; i += 4) {
+    const alpha = data[i + 3];
+    if (alpha) for (let channel = i; channel < i + 3; channel++) data[channel] = Math.round(data[channel] * 255 / alpha);
+  }
+  return { width: bitmap.width, height: bitmap.height, data: new Uint8ClampedArray(data.buffer), colorSpace: 'srgb' };
+}
+
 export function installImages(native) {
   if (typeof native.createImageBitmapFromRGBA !== 'function') throw new Error('Native ImageBitmap bridge is unavailable');
   const installed = globals();

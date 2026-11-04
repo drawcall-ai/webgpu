@@ -1,4 +1,5 @@
 import { globals } from './globals.js';
+import { installCopySources } from './image.js';
 import { loadNative } from './native.js';
 
 let runtime;
@@ -14,6 +15,7 @@ export function getRuntime() {
     for (const [name, value] of Object.entries(loaded.native.globals)) {
       if (name !== 'ImageBitmap') installed.set(name, value);
     }
+    installCopySources(loaded.native);
     const navigator = globalThis.navigator ?? {};
     Object.defineProperty(navigator, 'gpu', { value: gpu, configurable: true });
     if (!globalThis.navigator) installed.set('navigator', navigator);

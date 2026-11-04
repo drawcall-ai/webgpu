@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
-import { createCanvas } from '@drawcall/webgpu';
+import { createCanvas, readImageBitmap } from '@drawcall/webgpu';
 import { imageCases } from './images.js';
 import { contractCases } from './contract.js';
 
@@ -95,4 +95,55 @@ test('ICC conversion can be disabled without converting tagged pixels', async ()
       } finally { bitmap.close(); buffer.destroy(); texture.destroy(); }
     }
   } finally { device.destroy(); await canvas.dispose(); }
+});
+
+/** Copies `source` into a 1×2 rgba8unorm texture and reads back its bytes. */
+async function upload(device, source, destination = {}) {
+  const texture = device.createTexture({ size: [1, 2], format: 'rgba8unorm', usage: GPUTextureUsage.COPY_SRC | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT });
+  const buffer = device.createBuffer({ size: 512, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+  try {
+    device.queue.copyExternalImageToTexture(source, { texture, ...destination }, [1, 2]);
+    const encoder = device.createCommandEncoder();
+    encoder.copyTextureToBuffer({ texture }, { buffer, bytesPerRow: 256 }, [1, 2]);
+    device.queue.submit([encoder.finish()]);
+    await buffer.mapAsync(GPUMapMode.READ);
+    const bytes = new Uint8Array(buffer.getMappedRange());
+    const rows = [...bytes.subarray(0, 4), ...bytes.subarray(256, 260)];
+    buffer.unmap();
+    return rows;
+  } finally { buffer.destroy(); texture.destroy(); }
+}
+
+test('copies ImageData and 2D canvases of canvas libraries as their pixels', async () => {
+  // Red over half-transparent blue, as ImageData and as a canvas library's 2D canvas holds it.
+  const pixels = { width: 1, height: 2, data: new Uint8ClampedArray([255, 0, 0, 255, 0, 0, 255, 128]), colorSpace: 'srgb' };
+  const canvas2d = { width: 1, height: 2, getContext: type => type === '2d' ? { getImageData: () => pixels } : null };
+  const device = await (await navigator.gpu.requestAdapter()).requestDevice();
+  try {
+    assert.deepEqual(await upload(device, { source: pixels }), [255, 0, 0, 255, 0, 0, 255, 128]);
+    assert.deepEqual(await upload(device, { source: canvas2d, flipY: true }), [0, 0, 255, 128, 255, 0, 0, 255]);
+    assert.deepEqual(await upload(device, { source: canvas2d }, { premultipliedAlpha: true }), [255, 0, 0, 255, 0, 0, 128, 128]);
+    assert.throws(() => device.queue.copyExternalImageToTexture({ source: { ...pixels, colorSpace: 'display-p3' } }, { texture: device.createTexture({ size: [1, 2], format: 'rgba8unorm', usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT }) }, [1, 2]), TypeError);
+    assert.throws(() => device.queue.copyExternalImageToTexture({ source: {} }, { texture: device.createTexture({ size: [1, 1], format: 'rgba8unorm', usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT }) }, [1, 1]), TypeError);
+  } finally { device.destroy(); }
+});
+
+test('reads the straight-alpha pixels of decoded ImageBitmaps', async () => {
+  const { default: sharp } = await import('sharp');
+  const source = [255, 0, 0, 255, 0, 0, 255, 128];
+  const png = await sharp(Buffer.from(source), { raw: { width: 2, height: 1, channels: 4 } }).png().toBuffer();
+  const canvas = await createCanvas(1, 1);
+  try {
+    for (const premultiplyAlpha of ['none', 'premultiply']) {
+      const bitmap = await createImageBitmap(new Blob([png]), { premultiplyAlpha, colorSpaceConversion: 'none' });
+      const image = readImageBitmap(bitmap);
+      assert.deepEqual([image.width, image.height, image.colorSpace], [2, 1, 'srgb']);
+      assert.ok(image.data instanceof Uint8ClampedArray);
+      // Premultiplied bitmaps lose precision as browsers' do: blue 255 × 128/255 → 128 → 255.
+      assert.deepEqual([...image.data], source, premultiplyAlpha);
+      bitmap.close();
+      assert.throws(() => readImageBitmap(bitmap), { name: 'InvalidStateError' });
+    }
+    assert.throws(() => readImageBitmap({}), TypeError);
+  } finally { await canvas.dispose(); }
 });

@@ -43,3 +43,29 @@ exports.Set(
           env, static_cast<uint32_t>(w), static_cast<uint32_t>(h),
           std::move(owned), premultiplied);
     }));
+exports.Set(
+    "readImageBitmapRGBA",
+    Napi::Function::New(env, [](const Napi::CallbackInfo &info) -> Napi::Value {
+      auto env = info.Env();
+      auto *image = info.Length() > 0 && info[0].IsObject()
+          ? wgpu::interop::ImageBitmap::Unwrap(info[0].As<Napi::Object>())
+          : nullptr;
+      if (!image) {
+        Napi::TypeError::New(env, "Expected an ImageBitmap from createImageBitmap")
+            .ThrowAsJavaScriptException();
+        return env.Undefined();
+      }
+      auto *bitmap = static_cast<wgpu::binding::ImageBitmap *>(image);
+      if (bitmap->pixels_.empty()) {
+        auto error = Napi::Error::New(env, "ImageBitmap is closed");
+        error.Set("name", Napi::String::New(env, "InvalidStateError"));
+        error.ThrowAsJavaScriptException();
+        return env.Undefined();
+      }
+      auto data = Napi::Uint8Array::New(env, bitmap->pixels_.size());
+      std::copy(bitmap->pixels_.begin(), bitmap->pixels_.end(), data.Data());
+      auto result = Napi::Object::New(env);
+      result.Set("data", data);
+      result.Set("premultipliedAlpha", Napi::Boolean::New(env, bitmap->premultiplied_));
+      return result;
+    }));
