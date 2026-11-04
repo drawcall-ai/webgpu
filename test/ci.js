@@ -52,7 +52,7 @@ const report = {
 const reportPath = join(output, `ci-${process.platform}-${process.arch}.json`);
 try {
   const adapter = await run(['test/adapter.js']);
-  report.adapter = JSON.parse(adapter.stdout);
+  report.adapters = JSON.parse(adapter.stdout);
   process.stdout.write(adapter.stdout);
   process.stderr.write(adapter.stderr);
   const tests = (await readdir(join(root, 'test'))).filter(name => name.endsWith('.test.js')).sort();
@@ -62,11 +62,13 @@ try {
   report.example = await run(['--test', 'examples/compute-texture/test/node.test.js']);
   process.stdout.write(report.example.stdout);
   process.stderr.write(report.example.stderr);
+  // Without a native GPU the default adapter is the fallback; render it once.
+  const adapters = report.adapters.default.isFallbackAdapter ? ['fallback'] : ['default', 'fallback'];
   for (let repetition = 0; repetition < repetitions; repetition++) {
-    for (const scene of SCENES) {
-      const png = join(output, `${scene}-${repetition}.png`);
+    for (const scene of SCENES) for (const adapter of adapters) {
+      const png = join(output, `${scene}-${adapter}-${repetition}.png`);
       const start = performance.now();
-      const rendered = await run(['test/render.js', scene, png]);
+      const rendered = await run(['test/render.js', scene, png, adapter]);
       const wallSeconds = (performance.now() - start) / 1000;
       const result = JSON.parse(rendered.stdout);
       const verified = await run(['test/verify.js', scene, png, result.hash]);
@@ -76,8 +78,10 @@ try {
     }
   }
   assert.deepEqual(await sources(), before, 'Three.js or original model bytes changed');
+  // Only the bundled CPU renderer is bit-reproducible; GPU output is checked against the reference above.
   for (const scene of SCENES) {
-    assert.equal(new Set(report.rows.filter(row => row.scene === scene).map(row => row.hash)).size, 1, `${scene} changed between fresh processes`);
+    const hashes = new Set(report.rows.filter(row => row.scene === scene && row.adapter === 'fallback').map(row => row.hash));
+    assert.equal(hashes.size, 1, `${scene} on the fallback adapter changed between fresh processes`);
   }
   report.sourcesUnchanged = true;
   report.passed = true;

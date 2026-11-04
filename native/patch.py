@@ -6,7 +6,7 @@ def patch(root, musl=False):
     here = Path(__file__).parent
     base = root / "src/dawn"
     names = ["node/interop/Browser.idl", "node/Module.cpp", "node/binding/GPUQueue.h",
-             "node/binding/GPUQueue.cpp", "node/binding/GPUDevice.cpp", "native/vulkan/BackendVk.cpp",
+             "node/binding/GPUQueue.cpp", "node/binding/GPUDevice.cpp", "node/binding/GPU.cpp", "native/vulkan/BackendVk.cpp",
              "common/DynamicLib.cpp", "common/SystemUtils.cpp", "native/vulkan/BackendVk.h",
              "native/vulkan/VulkanInfo.h", "native/vulkan/VulkanInfo.cpp",
              "platform/WorkerThread.h", "platform/WorkerThread.cpp"]
@@ -81,6 +81,38 @@ def patch(root, musl=False):
            ": device_(std::move(device)), queue_(std::move(queue))")
     change("node/binding/GPUQueue.cpp", "    UNIMPLEMENTED(env);", (here / "queue.cpp").read_text())
     change("node/binding/GPUDevice.cpp", "env, device_.GetQueue(), async_", "env, device_, device_.GetQueue(), async_")
+    # Let Dawn rank every built backend: native GPUs first, the bundled CPU driver last.
+    change("node/binding/GPU.cpp", """    // Choose the backend to use.
+#if defined(_WIN32)
+    constexpr auto kDefaultBackendType = wgpu::BackendType::D3D12;
+#elif defined(__linux__)
+    constexpr auto kDefaultBackendType = wgpu::BackendType::Vulkan;
+#elif defined(__APPLE__)
+    constexpr auto kDefaultBackendType = wgpu::BackendType::Metal;
+#else
+#error "Unsupported platform"
+#endif
+    nativeOptions.backendType = kDefaultBackendType;
+""", "    nativeOptions.backendType = wgpu::BackendType::Undefined;\n")
+    # Vulkan recognized only SwiftShader as a fallback and filtered while caching, so the
+    # first request's forceFallbackAdapter decided what later requests could see.
+    change("native/vulkan/BackendVk.cpp", """        // Swiftshader is the only fallback adapter that we currently have.
+        if (gpu_info::IsGoogleSwiftshader(physicalDevice->GetVendorId(),
+                                          physicalDevice->GetDeviceId())) {
+            return true;
+        }
+        return false;""", "        return physicalDevice->GetAdapterType() == wgpu::AdapterType::CPU;")
+    change("native/vulkan/BackendVk.cpp", """                if (options->forceFallbackAdapter && !IsFallbackAdapter(physicalDevice.Get())) {
+                    continue;
+                }
+""", "")
+    change("native/vulkan/BackendVk.cpp", """        for (auto& physicalDevice : mPhysicalDevices[icd]) {
+            if (physicalDevice->SupportsFeatureLevel(options->featureLevel, instance)) {""",
+           """        for (auto& physicalDevice : mPhysicalDevices[icd]) {
+            if (options->forceFallbackAdapter && !IsFallbackAdapter(physicalDevice.Get())) {
+                continue;
+            }
+            if (physicalDevice->SupportsFeatureLevel(options->featureLevel, instance)) {""")
     # Our bundled Vulkan loader and Mesa driver are available on macOS too.
     change("native/vulkan/BackendVk.cpp", """#if DAWN_PLATFORM_IS(MACOS)
         // On Mac, we don't expect non-Swiftshader Vulkan to be available.
@@ -103,7 +135,7 @@ def patch(root, musl=False):
     driverInfo.sType = VK_STRUCTURE_TYPE_DIRECT_DRIVER_LOADING_INFO_LUNARG;
     driverInfo.pfnGetInstanceProcAddr = mDriverGetInstanceProcAddr;
     VkDirectDriverLoadingListLUNARG driverList = {};
-    driverList.mode = VK_DIRECT_DRIVER_LOADING_MODE_EXCLUSIVE_LUNARG;
+    driverList.mode = VK_DIRECT_DRIVER_LOADING_MODE_INCLUSIVE_LUNARG;
     driverList.driverCount = 1;
     driverList.pDrivers = &driverInfo;
     createInfoChain.Add(&driverList, VK_STRUCTURE_TYPE_DIRECT_DRIVER_LOADING_LIST_LUNARG);""")
@@ -132,7 +164,8 @@ def patch(root, musl=False):
             bool loaderDebugUtils = info.extensions[InstanceExt::DebugUtils];
             DAWN_TRY_ASSIGN(info.extensions,
                             GatherInstanceExtensions(nullptr, *driverFunctions, knownExts));
-            // Other loader-advertised surface capabilities can belong to unrelated system ICDs.
+            // The loader cannot report a direct driver's extensions before instance creation, so
+            // enable only what the bundled driver supports; headless system drivers need no more.
             info.extensions.set(InstanceExt::DebugUtils,
                                 loaderDebugUtils || info.extensions[InstanceExt::DebugUtils]);
         }""")

@@ -1,6 +1,6 @@
 ---
 name: webgpu
-description: Use @drawcall/webgpu for portable Three.js rendering and WebGPU compute in browsers and GPU-less Node.js, including headless scene export with standard loaders.
+description: Use @drawcall/webgpu for portable Three.js rendering and WebGPU compute in browsers and Node.js with or without a GPU, including headless scene export with standard loaders.
 ---
 
 # Render a scene
@@ -46,6 +46,6 @@ For cold server-side rendering, launch a fresh process per task, render, encode,
 
 # Compute without a canvas
 
-Import `requestAdapter` from the package, check its result, then call the adapter’s standard `requestDevice` with the features and limits the workload requires. Use ordinary WGSL, buffers, compute passes, and queue submission. No canvas or loader host is needed. Destroy application-owned devices when finished; do not rely on garbage collection to release GPU resources. Browser and software adapters can expose different capabilities.
+Import `requestAdapter` from the package, check its result, then call the adapter’s standard `requestDevice` with the features and limits the workload requires. Use ordinary WGSL, buffers, compute passes, and queue submission. No canvas or loader host is needed. Destroy application-owned devices when finished; do not rely on garbage collection to release GPU resources. Node prefers a native GPU adapter and falls back to the bundled CPU renderer; request `{ forceFallbackAdapter: true }` to select the CPU renderer explicitly. GPU, browser, and CPU adapters can expose different capabilities. To render Three on a specific adapter, pass a device created from it to `WebGPURenderer`.
 
 For combined raw compute and Three rendering, pass the same application-created device to `WebGPURenderer`. For Three TSL compute nodes, use the renderer’s compute API directly. Neither path requires changing Three.js.

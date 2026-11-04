@@ -1,41 +1,32 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { createCanvas } from '@drawcall/webgpu';
 
-const directory = await mkdtemp(join(tmpdir(), 'webgpu-icd-'));
-const missingManifest = join(directory, 'missing.json');
+// The Mesa release that deps/mesa.py bundles; test/tools/release.test.js keeps them in step.
+const MESA = '25.0.7';
+
+// Installed Vulkan drivers are selected by the standard loader variables; the package must not alter them.
 const names = ['VK_DRIVER_FILES', 'VK_ICD_FILENAMES'];
-const previous = names.map(name => process.env[name]);
-for (const name of names) process.env[name] = missingManifest;
-let canvas;
-try {
-  canvas = await createCanvas(1, 1);
-  for (const name of names) assert.equal(process.env[name], missingManifest, `${name} changed while canvas was active`);
-  const adapter = await navigator.gpu.requestAdapter();
+const before = names.map(name => process.env[name]);
+const unchanged = when => assert.deepEqual(names.map(name => process.env[name]), before, `Vulkan driver selection changed ${when}`);
+
+function describe(adapter) {
   assert.ok(adapter, 'No WebGPU adapter');
-  for (const name of names) assert.equal(process.env[name], missingManifest, `${name} changed during adapter selection`);
-  const info = adapter.info;
-  const result = {
-    vendor: info.vendor,
-    architecture: info.architecture,
-    device: info.device,
-    description: info.description,
-    isFallbackAdapter: info.isFallbackAdapter,
-    features: [...adapter.features].sort(),
-  };
-  console.log(JSON.stringify(result));
-  assert.match(`${info.vendor} ${info.architecture} ${info.device} ${info.description}`, /llvmpipe|lavapipe/i, 'CI must use the bundled Mesa software adapter');
-} finally {
-  try {
-    await canvas?.dispose();
-    for (const name of names) assert.equal(process.env[name], missingManifest, `${name} changed after canvas disposal`);
-  } finally {
-    for (const [index, name] of names.entries()) {
-      if (previous[index] === undefined) delete process.env[name];
-      else process.env[name] = previous[index];
-    }
-    await rm(directory, { recursive: true });
-  }
+  const { vendor, architecture, device, description, isFallbackAdapter } = adapter.info;
+  return { vendor, architecture, device, description, isFallbackAdapter, features: [...adapter.features].sort() };
 }
+
+const canvas = await createCanvas(1, 1);
+try {
+  unchanged('while a canvas was active');
+  const standard = describe(await navigator.gpu.requestAdapter());
+  const fallback = describe(await navigator.gpu.requestAdapter({ forceFallbackAdapter: true }));
+  unchanged('during adapter selection');
+  console.log(JSON.stringify({ default: standard, fallback }));
+  assert.ok(fallback.description.startsWith(`llvmpipe: Mesa ${MESA} (`), `The fallback adapter must be the bundled Mesa ${MESA}: ${fallback.description}`);
+  assert.equal(fallback.isFallbackAdapter, true);
+  // A native GPU ranks first; without one, the bundled renderer is the default.
+  if (standard.isFallbackAdapter) assert.deepEqual(standard, fallback);
+} finally {
+  await canvas.dispose();
+}
+unchanged('after canvas disposal');

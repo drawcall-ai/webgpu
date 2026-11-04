@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import { createCanvas } from '@drawcall/webgpu';
 import { Color, Scene, PerspectiveCamera, WebGPURenderer } from 'three/webgpu';
 
@@ -30,9 +33,11 @@ test('canvas supports default Three alpha, restores globals, and packs unaligned
         const pixels = await canvas.readPixels();
         assert.equal(pixels.length, 24);
         for (let index = 0; index < pixels.length; index += 4) {
-          // Three's float32 sRGB transform can quantize red to 127 while alpha rounds to 128.
+          // Three's float32 sRGB transform can quantize red to 127, and alpha 0.5 is 127.5 in
+          // unorm8: GPUs may round it either way.
           assert.ok(Math.abs(pixels[index] - 255) <= 2, 'Half-alpha red must be unpremultiplied');
-          assert.deepEqual([...pixels.subarray(index + 1, index + 4)], [0, 0, 128]);
+          assert.deepEqual([...pixels.subarray(index + 1, index + 3)], [0, 0]);
+          assert.ok([127, 128].includes(pixels[index + 3]), `Half alpha must round to 127 or 128, got ${pixels[index + 3]}`);
         }
         renderer.setClearAlpha(0);
         renderer.render(scene, new PerspectiveCamera());
@@ -47,8 +52,6 @@ test('canvas supports default Three alpha, restores globals, and packs unaligned
 });
 
 test('classic Worker failure terminates a waiting loader visibly', { timeout: 15000 }, async () => {
-  const { execFile } = await import('node:child_process');
-  const { promisify } = await import('node:util');
   const source = `
     import { createCanvas } from '@drawcall/webgpu';
     await createCanvas(2, 2);
@@ -82,4 +85,15 @@ test('canvas acquisition during final cleanup preserves the new loader host', as
       assert.deepEqual([...await second.readPixels()], Array(4).fill([255, 0, 0, 255]).flat());
     } finally { await renderer.dispose(); }
   } finally { await second.dispose(); }
+});
+
+test('without installed Vulkan drivers the bundled renderer is the fallback and the default Vulkan adapter', { timeout: 30000 }, async () => {
+  const missing = fileURLToPath(new URL('missing-vulkan-driver.json', import.meta.url));
+  const { stdout } = await promisify(execFile)(process.execPath, [fileURLToPath(new URL('adapter.js', import.meta.url))], {
+    env: { ...process.env, VK_DRIVER_FILES: missing, VK_ICD_FILENAMES: missing }, timeout: 20000,
+  });
+  const adapters = JSON.parse(stdout);
+  // Metal is not a Vulkan driver, so macOS still defaults to its GPU.
+  if (process.platform !== 'darwin') assert.deepEqual(adapters.default, adapters.fallback);
+  assert.equal(adapters.fallback.isFallbackAdapter, true);
 });

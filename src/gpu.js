@@ -10,7 +10,7 @@ export function getRuntime() {
   const installed = globals();
   const loaded = loadNative();
   try {
-    const gpu = loaded.native.create(['backend=vulkan']);
+    const gpu = loaded.native.create([]);
     for (const [name, value] of Object.entries(loaded.native.globals)) {
       if (name !== 'ImageBitmap') installed.set(name, value);
     }
@@ -26,7 +26,10 @@ export function getRuntime() {
   }
 }
 
-/** Select a native software adapter using standard GPURequestAdapterOptions. */
+/**
+ * Select an adapter using standard GPURequestAdapterOptions. Native GPUs rank first;
+ * the bundled CPU renderer is the fallback adapter (forceFallbackAdapter: true).
+ */
 export async function requestAdapter(options) {
   return getRuntime().gpu.requestAdapter(options);
 }

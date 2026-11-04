@@ -172,3 +172,11 @@ test('trust configures precisely these nine packages and dry-run invokes no exte
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('the fallback adapter check expects the Mesa release that is bundled', () => {
+  const bundled = readFileSync(new URL('../../deps/mesa.py', import.meta.url), 'utf8').match(/mesa-(\d+\.\d+\.\d+)\.tar\.xz/);
+  const expected = readFileSync(new URL('../adapter.js', import.meta.url), 'utf8').match(/const MESA = '([^']+)'/);
+  assert.ok(bundled, 'Mesa pin not found in deps/mesa.py');
+  assert.ok(expected, 'MESA constant not found in test/adapter.js');
+  assert.equal(expected[1], bundled[1]);
+});

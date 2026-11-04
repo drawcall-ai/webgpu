@@ -113,7 +113,8 @@ def build(work, output, jobs=4):
     if host.startswith(("linux-", "linuxmusl-")):
         options.append("-DCMAKE_SHARED_LINKER_FLAGS=-static-libstdc++ -static-libgcc -Wl,--exclude-libs,ALL")
     if host.startswith("darwin-"):
-        options.append("-DCMAKE_OSX_DEPLOYMENT_TARGET=13.5")
+        # macOS GPUs need Metal; other platforms reach GPUs through installed Vulkan drivers.
+        options.extend(["-DCMAKE_OSX_DEPLOYMENT_TARGET=13.5", "-DDAWN_ENABLE_METAL=ON"])
     if host.startswith("win32-"):
         options.extend(["-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded", "-DABSL_MSVC_STATIC_RUNTIME=ON"])
     run("cmake", "-S", source, "-B", work / "build", "-G", "Ninja",
@@ -121,7 +122,7 @@ def build(work, output, jobs=4):
         "-DCMAKE_VISIBILITY_INLINES_HIDDEN=1", "-DDAWN_BUILD_NODE_BINDINGS=ON",
         "-DDAWN_FETCH_DEPENDENCIES=ON", "-DDAWN_USE_X11=OFF", "-DDAWN_USE_WAYLAND=OFF",
         "-DDAWN_USE_WINDOWS_UI=OFF", "-DDAWN_ENABLE_VULKAN=ON",
-        "-DDAWN_ENABLE_METAL=OFF", "-DDAWN_ENABLE_D3D11=OFF", "-DDAWN_ENABLE_D3D12=OFF",
+        "-DDAWN_ENABLE_D3D11=OFF", "-DDAWN_ENABLE_D3D12=OFF",
         "-DDAWN_ENABLE_NULL=OFF",
         "-DDAWN_BUILD_SAMPLES=OFF", "-DDAWN_BUILD_TESTS=OFF", "-DTINT_BUILD_TESTS=OFF",
         "-DDAWN_ENABLE_OPENGLES=OFF", "-DDAWN_ENABLE_DESKTOP_GL=OFF", "-DDAWN_SUPPORTS_CXX_MODULES=OFF",

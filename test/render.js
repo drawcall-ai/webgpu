@@ -1,17 +1,23 @@
 import { createHash } from 'node:crypto';
 import sharp from 'sharp';
-import { createCanvas } from '@drawcall/webgpu';
+import { createCanvas, requestAdapter } from '@drawcall/webgpu';
 import { WebGPURenderer } from 'three/webgpu';
 import { buildScene, WIDTH, HEIGHT } from './scenes.js';
 import { serve } from './server.js';
 
-const [name, output] = process.argv.slice(2);
+// Adapter 'fallback' pins the bundled CPU renderer; 'default' lets WebGPU choose.
+const [name, output, adapter = 'default'] = process.argv.slice(2);
+if (!['default', 'fallback'].includes(adapter)) throw new Error(`Unknown adapter: ${adapter}`);
 const server = await serve();
-let canvas, renderer;
+let canvas, renderer, device;
 let hash;
 try {
   canvas = await createCanvas(WIDTH, HEIGHT);
-  renderer = new WebGPURenderer({ canvas, antialias: false, alpha: false });
+  if (adapter === 'fallback') {
+    const fallback = await requestAdapter({ forceFallbackAdapter: true });
+    device = await fallback.requestDevice({ requiredFeatures: [...fallback.features] });
+  }
+  renderer = new WebGPURenderer({ canvas, device, antialias: false, alpha: false });
   await renderer.init();
   renderer.shadowMap.enabled = name === 'soldier';
   const { scene, camera } = await buildScene(name, renderer, server.url, WIDTH / HEIGHT);
@@ -21,8 +27,10 @@ try {
   hash = createHash('sha256').update(pixels).digest('hex');
 } finally {
   try { await renderer?.dispose(); } finally {
-    try { await canvas?.dispose(); } finally { await server.close(); }
+    try { await canvas?.dispose(); } finally {
+      try { device?.destroy(); } finally { await server.close(); }
+    }
   }
 }
 const peakRssKiB = process.resourceUsage().maxRSS;
-console.log(JSON.stringify({ scene: name, hash, peakRssMiB: peakRssKiB > 0 ? peakRssKiB / 1024 : null }));
+console.log(JSON.stringify({ scene: name, adapter, hash, peakRssMiB: peakRssKiB > 0 ? peakRssKiB / 1024 : null }));

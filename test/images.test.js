@@ -5,13 +5,13 @@ import { createCanvas } from '@drawcall/webgpu';
 import { imageCases } from './images.js';
 import { contractCases } from './contract.js';
 
-for (const [name, probe] of [['images', imageCases], ['contract', contractCases]]) {
-  test(`native external images match browser ${name} contract`, async () => {
+for (const [name, probe] of [['images', imageCases], ['contract', contractCases]]) for (const forceFallbackAdapter of [false, true]) {
+  test(`native external images match browser ${name} contract on the ${forceFallbackAdapter ? 'fallback' : 'default'} adapter`, async () => {
     const reference = JSON.parse(await readFile(new URL(`reference/${name}.json`, import.meta.url)));
     const canvas = await createCanvas(2, 2);
-    const adapter = await navigator.gpu.requestAdapter();
-    const requiredFeatures = name === 'contract'
-      ? ['texture-formats-tier1', 'rg11b10ufloat-renderable'].filter(feature => adapter.features.has(feature)) : [];
+    const adapter = await navigator.gpu.requestAdapter({ forceFallbackAdapter });
+    // Match the reference browser device: rg11b10ufloat is renderable, snorm formats are not.
+    const requiredFeatures = name === 'contract' ? ['rg11b10ufloat-renderable'] : [];
     const device = await adapter.requestDevice({ requiredFeatures });
     try {
       const actual = await probe(device, Buffer.from(reference.fixturePngBase64, 'base64'));

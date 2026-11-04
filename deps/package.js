@@ -15,7 +15,7 @@ if (build.driver !== 'mesa') throw new Error('Native build must include Mesa');
 const manifest = {
   name: `@drawcall/webgpu-${target}`,
   version: root.version,
-  description: `Dawn and Mesa lavapipe for CPU rendering on ${target}`,
+  description: `Dawn with native GPU backends and Mesa lavapipe CPU fallback on ${target}`,
   license: platform === 'linux'
     ? 'BSD-3-Clause AND MIT AND Zlib AND Apache-2.0 WITH LLVM-exception AND GPL-3.0-or-later WITH GCC-exception-3.1'
     : 'BSD-3-Clause AND MIT AND Zlib AND Apache-2.0 WITH LLVM-exception',
