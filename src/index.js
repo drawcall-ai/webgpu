@@ -1,5 +1,6 @@
 import { canvas } from './canvas.js';
 import { getRuntime } from './gpu.js';
+import { readImageBitmap as readNative } from './image.js';
 
 export { requestAdapter, getPreferredCanvasFormat } from './gpu.js';
 
@@ -27,4 +28,12 @@ export async function createCanvas(width, height, { offscreen = false } = {}) {
     if (failures.length) throw new AggregateError(failures, 'Canvas cleanup failed');
   })();
   return target.output;
+}
+
+/**
+ * The straight-alpha sRGB RGBA pixels of an ImageBitmap from createImageBitmap, as ImageData's fields: what a 2D canvas
+ * library needs to draw it, since Node has no 2D canvas of its own.
+ */
+export function readImageBitmap(bitmap) {
+  return readNative(getRuntime().native, bitmap);
 }

@@ -15,7 +15,7 @@ renderer.render(scene, camera);
 
 In a browser, append the returned canvas to your container. It is a real canvas with normal CSS, events, and resizing. Use `{ offscreen: true }` as the third argument for an `OffscreenCanvas`. Browser support requires WebGPU in a secure context. Node canvases are always headless: CSS assignments are inert; explicit dimensions control output resolution.
 
-For Node image export, canvas-free compute, loading assets, and cleanup, see the shipped [usage skill](skills/webgpu/SKILL.md). Compute uses `requestAdapter()` followed by standard WebGPU device and command APIs. Node does not provide DOM layout, video, or canvas-2D texture sources.
+For Node image export, canvas-free compute, loading assets, and cleanup, see the shipped [usage skill](skills/webgpu/SKILL.md). Compute uses `requestAdapter()` followed by standard WebGPU device and command APIs. Node does not provide DOM layout, video, or a 2D canvas; a canvas library's 2D canvases work as texture sources.
 
 Node requires version 22+. Native packages bundle the software renderer and Vulkan loader for Linux x64/ARM64 (glibc 2.28+ or musl 1.2.5+/Alpine 3.22+), macOS 13.5+ (Intel/Apple Silicon), and Windows x64/ARM64. x64 requires SSE4.2. No GPU, browser, compiler, SDK, or system graphics packages are needed.
 

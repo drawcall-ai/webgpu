@@ -24,3 +24,10 @@ export async function requestAdapter(options) {
 export function getPreferredCanvasFormat() {
   return gpu().getPreferredCanvasFormat();
 }
+
+/** The straight-alpha sRGB RGBA pixels of an ImageBitmap, as ImageData. */
+export function readImageBitmap(bitmap) {
+  const context = new OffscreenCanvas(bitmap.width, bitmap.height).getContext('2d');
+  context.drawImage(bitmap, 0, 0);
+  return context.getImageData(0, 0, bitmap.width, bitmap.height);
+}
