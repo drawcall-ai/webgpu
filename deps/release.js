@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFile, execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { cp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseArgs } from 'node:util';
+import { parseArgs, promisify } from 'node:util';
 import { setTimeout } from 'node:timers/promises';
 
 const { values, positionals } = parseArgs({
@@ -106,7 +106,7 @@ function published(item, version) {
   return true;
 }
 
-function publish() {
+async function publish() {
   const release = JSON.parse(readFileSync(join(output, 'release.json')));
   assert.deepEqual(release.packages.map(item => item.name), names, 'Prepared release does not match this package set');
   for (const item of release.packages) {
@@ -115,11 +115,20 @@ function publish() {
   }
   // Check every published version before changing the registry; partial releases resume safely.
   const pending = release.packages.filter(item => !published(item, release.version));
-  for (const item of pending) {
-    run(['publish', join(output, item.file), '--access', 'public', '--tag', 'latest',
+  const upload = async item => {
+    const { stdout, stderr } = await promisify(execFile)(process.execPath, [npm, 'publish', join(output, item.file),
+      '--access', 'public', '--tag', 'latest',
       ...(process.env.GITHUB_ACTIONS === 'true' ? ['--provenance'] : []),
-      ...(values['dry-run'] ? ['--dry-run'] : [])]);
-  }
+      ...(values['dry-run'] ? ['--dry-run'] : [])], { cwd: root, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
+    process.stdout.write(stdout);
+    process.stderr.write(stderr);
+  };
+  // Native packages are independent and publish together; the main package goes last so a
+  // published version never references a missing native package.
+  const results = await Promise.allSettled(pending.filter(item => item.name !== manifest.name).map(upload));
+  const failures = results.filter(result => result.status === 'rejected').map(result => result.reason);
+  if (failures.length) throw new AggregateError(failures, 'Native packages failed to publish; the main package was not published');
+  for (const item of pending.filter(item => item.name === manifest.name)) await upload(item);
 }
 
 // Run after initial publication with npm >=11.15 and an account with 2FA enabled.
@@ -138,4 +147,4 @@ async function trust() {
 
 if (command === 'prepare') await prepare();
 else if (command === 'trust') await trust();
-else publish();
+else await publish();

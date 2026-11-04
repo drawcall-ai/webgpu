@@ -8,12 +8,10 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  ci:
-    uses: ./.github/workflows/ci.yml
   publish:
-    needs: ci
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       contents: read
       id-token: write
     steps:
@@ -23,10 +21,24 @@ jobs:
           node-version: 24
           registry-url: https://registry.npmjs.org/
       - run: npm install --global npm@11.19.0
+      # Publish exactly what main's CI built and tested for this commit instead of rebuilding.
+      - name: Find the passing main CI run for this commit
+        id: ci
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          run=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&branch=main&event=push&status=success" --jq '.workflow_runs[0].id // empty')
+          if [ -z "$run" ]; then
+            echo "::error::No successful main CI run for $GITHUB_SHA. Push the commit to main, wait for CI, then tag it."
+            exit 1
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
       - uses: actions/download-artifact@v4
         with:
           pattern: package-*
           path: dist
+          run-id: ${{ steps.ci.outputs.run }}
+          github-token: ${{ github.token }}
       - name: Prepare all release tarballs
         env:
           RELEASE_TAG: ${{ github.ref_name }}

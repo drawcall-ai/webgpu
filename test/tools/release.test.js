@@ -109,14 +109,15 @@ test('publishing resumes matching packages and rejects conflicts or registry err
         process.exit(value.error ? 1 : 0);
       }
       if (args[0] !== 'publish') throw new Error('Unexpected npm operation');
+      if (args[1].endsWith(process.env.FAIL_PUBLISH ?? '\0')) throw new Error('publish-failure-marker');
     `);
     const registry = Object.fromEntries(names.slice(0, 5).map(name => [
       `${name}@0.1.0`, `sha512-${createHash('sha512').update(name).digest('base64')}`,
     ]));
-    const run = () => {
+    const run = (env = {}) => {
       write('calls.jsonl', '');
       return spawnSync(process.execPath, ['deps/release.js', 'publish', '--dry-run'], {
-        cwd: root, encoding: 'utf8', env: { ...process.env, npm_execpath: join(root, 'npm.js') },
+        cwd: root, encoding: 'utf8', env: { ...process.env, npm_execpath: join(root, 'npm.js'), ...env },
       });
     };
     const calls = () => readFileSync(join(root, 'calls.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line));
@@ -124,8 +125,16 @@ test('publishing resumes matching packages and rejects conflicts or registry err
     const resumed = run();
     assert.equal(resumed.status, 0, resumed.stderr);
     assert.deepEqual(calls().slice(0, names.length).map(args => args[0]), names.map(() => 'view'));
-    assert.deepEqual(calls().slice(names.length).map(args => args[1]), packages.slice(5).map(item => join(root, 'dist/release', item.file)));
+    // Native packages publish concurrently, in any order; the main package is always last.
+    const published = calls().slice(names.length).map(args => args[1]);
+    const expected = packages.slice(5).map(item => join(root, 'dist/release', item.file));
+    assert.deepEqual([...published].sort(), [...expected].sort());
+    assert.equal(published.at(-1), expected.at(-1));
     assert.ok(calls().slice(names.length).every(args => args.includes('--dry-run')));
+    const failed = run({ FAIL_PUBLISH: packages[5].file });
+    assert.notEqual(failed.status, 0);
+    assert.match(failed.stderr, /main package was not published/);
+    assert.ok(!calls().some(args => args[1] === expected.at(-1)), 'The main package must wait for every native package');
     for (const [value, message] of [
       ['sha512-conflicting', /already exists with different contents/],
       [{ error: { code: 'E401' } }, /Cannot check/],
