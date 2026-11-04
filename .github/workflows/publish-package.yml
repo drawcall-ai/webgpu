@@ -2,6 +2,12 @@ name: Publish packages
 on:
   push:
     tags: ['v*']
+  # Publish package.json's version from a given main CI run, e.g. while main's head is still in CI.
+  workflow_dispatch:
+    inputs:
+      ci-run:
+        description: ID of a main CI run whose tested packages to publish
+        required: true
 
 concurrency:
   group: publish-webgpu
@@ -10,6 +16,8 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     permissions:
       actions: read
       contents: read
@@ -22,11 +30,27 @@ jobs:
           registry-url: https://registry.npmjs.org/
       - run: npm install --global npm@11.19.0
       # Publish exactly what main's CI built and tested for this commit instead of rebuilding.
+      - name: Release version
+        id: version
+        env:
+          TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if [ -n "$TAG" ] && [ "$TAG" != "v$version" ]; then
+            echo "::error::Tag $TAG does not match package.json version $version"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
       - name: Find the passing main CI run for this commit
         id: ci
         env:
           GH_TOKEN: ${{ github.token }}
+          RUN: ${{ inputs.ci-run }}
         run: |
+          if [ -n "$RUN" ]; then
+            echo "run=$RUN" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           run=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&branch=main&event=push&status=success" --jq '.workflow_runs[0].id // empty')
           if [ -z "$run" ]; then
             echo "::error::No successful main CI run for $GITHUB_SHA. Push the commit to main, wait for CI, then tag it."
@@ -39,14 +63,15 @@ jobs:
           path: dist
           run-id: ${{ steps.ci.outputs.run }}
           github-token: ${{ github.token }}
+      # Preparation rejects binaries not built from this checkout's native sources.
       - name: Prepare all release tarballs
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           for directory in dist/package-*; do
             mv "$directory" "dist/${directory#dist/package-}"
           done
-          npm run release:prepare -- "${RELEASE_TAG#v}"
+          npm run release:prepare -- "$VERSION"
       - uses: actions/upload-artifact@v4
         with:
           name: release
@@ -58,4 +83,4 @@ jobs:
     needs: publish
     uses: ./.github/workflows/verify-package.yml
     with:
-      version: ${{ github.ref_name }}
+      version: ${{ needs.publish.outputs.version }}
